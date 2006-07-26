@@ -5,7 +5,7 @@ package Sub::WrapPackages;
 
 use vars qw($VERSION);
 
-$VERSION = '1.0';
+$VERSION = '1.1';
 
 =head1 NAME
 
@@ -17,6 +17,8 @@ subroutines in packages or around individual subs
     use Sub::WrapPackages (
         packages => [qw(Foo Bar)],        # wrap all Foo::* and Bar::*
         subs     => [qw(Baz::a, Baz::b)], # wrap these two subs as well
+        wrap_inherited => 1,              # and wrap any methods
+                                          # inherited by Foo and Bar
 	pre      => sub {
 	    print "called $_[0] with params ".
 	      join(', ', @_[1..$#_])."\n";
@@ -47,6 +49,12 @@ packages mentioned in C<packages> will have all their subroutines wrapped.
 We divine which subs to wrap in a package with the C<_get_syms> method from
 Richard Clamp's Pod::Coverage module.  Yes, it's documented as being
 unstable.  Caveat User.
+
+=item wrap_inherited
+
+In conjunction with the C<packages> arrayref, this wraps all calls to
+inherited methods made through those packages.  If you call those
+methods directly in the superclass then they are not affected.
 
 =item parameters passed to your subs
 
@@ -118,6 +126,38 @@ sub wrapsubs {
     my %params = @_;
 
     if(exists($params{packages}) && ref($params{packages}) =~ /^ARRAY/) {
+        if($params{wrap_inherited}) {
+            foreach my $package (@{$params{packages}}) {
+                # FIXME? does this work with 'use base'
+                my @parents = eval '@'.$package.'::ISA';
+
+                # get inherited (but not over-ridden!) subs
+                my %subs_in_package = map {
+                    s/.*:://; ($_, 1);
+                } subs_in_packages($package);
+
+                my @subs_to_define = grep {
+                    !exists($subs_in_package{$_})
+                } map { 
+                    s/.*:://; $_;
+                } subs_in_packages(@parents);
+
+                # define them in $package using SUPER
+		foreach my $sub (@subs_to_define) {
+		    no strict;
+		    *{$package."::$sub"} = eval "
+		        sub {
+			    package $package;
+                            my \$self = shift;
+                            \$self->SUPER::$sub(\@_);
+                        };
+	            ";
+		    package __PACKAGE__;
+		    print "Defined ${package}::$sub\n";
+		    push @{$params{subs}}, $package."::$sub";
+		}
+            }
+        }
         push @{$params{subs}}, subs_in_packages(@{$params{packages}});
     } elsif(exists($params{packages})) {
         die("Bad param 'packages'");

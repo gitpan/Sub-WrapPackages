@@ -9,7 +9,6 @@ BEGIN { $| = 1; print "1..3\n"; }
 END { print "not ok 1\n" unless $loaded; }
 
 use lib 't/lib'; use a;
-use Data::Dumper;
 use Sub::WrapPackages (
     subs => [qw(a::a_scalar a::a_list)],
     pre => sub {

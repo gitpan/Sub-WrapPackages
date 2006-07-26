@@ -7,7 +7,6 @@ use strict;
 BEGIN { $| = 1; print "1..2\n"; }
 
 use lib 't/lib'; use a;
-use Data::Dumper;
 use Sub::WrapPackages (
     packages => [qw(a)],
     pre => sub {
