@@ -5,7 +5,9 @@ package Sub::WrapPackages;
 
 use vars qw($VERSION);
 
-$VERSION = '1.1';
+use Data::Dumper;
+
+$VERSION = '1.2';
 
 =head1 NAME
 
@@ -46,9 +48,6 @@ you look at the source I haven't tested it.  Patches welcome!
 In the synopsis above, you will see two named parameters, C<subs> and
 C<packages>.  Any subroutine mentioned in C<subs> will be wrapped.  Any
 packages mentioned in C<packages> will have all their subroutines wrapped.
-We divine which subs to wrap in a package with the C<_get_syms> method from
-Richard Clamp's Pod::Coverage module.  Yes, it's documented as being
-unstable.  Caveat User.
 
 =item wrap_inherited
 
@@ -85,15 +84,21 @@ AUTOLOAD and DESTROY are not treated as being special.
 I like to know who's using my code.  All comments, including constructive
 criticism, are welcome.  Please email me.
 
-=head1 AUTHOR
+=head1 AUTHOR and CREDITS
 
 David Cantrell E<lt>F<david@cantrell.org.uk>E<gt>
 
-Thanks also to Adam Trickett who thought this was a jolly good idea.
+Thanks also to Adam Trickett who thought this was a jolly good idea,
+Tom Hukins who prompted me to add support for inherited methods, and Ed
+Summers, whose code for figgering out what functions a package contains
+I borrowed out of L<Acme::Voodoo>.
 
-=head1 COPYRIGHT
+Thanks to Tom Hukins for sending in a test case for the situation when
+a class and a subclass are both defined in the same file.
 
-Copyright 2003 David Cantrell
+=head1 COPYRIGHT and LICENCE
+
+Copyright 2003 - 2006 David Cantrell
 
 This module is free-as-in-speech software, and may be used, distributed,
 and modified under the same terms as Perl itself.
@@ -101,7 +106,6 @@ and modified under the same terms as Perl itself.
 =cut
 
 use Hook::LexWrap;
-use Pod::Coverage;  # we use _get_syms out of here
 
 sub import {
     my $i_am_weasel = shift;
@@ -109,15 +113,14 @@ sub import {
 }
 
 sub subs_in_packages {
-    my @targets = @_;
+    my @targets = map { $_.'::' } @_;
 
     my @subs;
     foreach my $package (@targets) {
-        push @subs, map {
-            $package.'::'.$_
-        } Pod::Coverage->new(
-            package => $package, private => []
-        )->_get_syms($package);
+	no strict;
+        while(my($k, $v) = each(%{$package})) {
+	    push @subs, $package.$k if(defined(&{$v}));
+	}
     }
     return @subs;
 }
@@ -152,9 +155,8 @@ sub wrapsubs {
                             \$self->SUPER::$sub(\@_);
                         };
 	            ";
-		    package __PACKAGE__;
-		    print "Defined ${package}::$sub\n";
-		    push @{$params{subs}}, $package."::$sub";
+		    eval 'package __PACKAGE__';
+		    # push @{$params{subs}}, $package."::$sub";
 		}
             }
         }

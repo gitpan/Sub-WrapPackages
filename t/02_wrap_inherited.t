@@ -2,6 +2,7 @@
 
 use strict;
 use Test::More tests => 3;
+use Data::Dumper;
 
 my $r;
 
@@ -10,7 +11,9 @@ use Sub::WrapPackages (
     packages       => [qw(b)],
     wrap_inherited => 1,
     pre            => sub { $r .= join(", ", @_); },
-    post           => sub { $r .= ref($_[1]) =~ /^ARRAY/ ? @{$_[1]} : $_[1]; }
+    post           => sub {
+		          $r .= ref($_[1]) =~ /^ARRAY/ ? join(', ', @{$_[1]}) : $_[1];
+		      }
 );
 
 $r .= b->b_function();
@@ -21,7 +24,7 @@ ok($r eq 'b::b_function, bi like piei like pie',
 $r = '';
 my @r = b->a_list(4,6,8);
 
-ok(join('', @r) eq 'insuba_list' && $r eq 'b::a_list, b, 4, 6, 83',
+ok(join('', @r) eq 'insuba_list' && $r eq 'b::a_list, b, 4, 6, 8in, sub, a_list',
   'Can wrap inherited subs');
 
 $r = '';

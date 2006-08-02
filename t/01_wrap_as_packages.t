@@ -13,7 +13,7 @@ use Sub::WrapPackages (
         $r .= join(", ", @_);
     },
     post => sub {
-        $r .= ref($_[1]) =~ /^ARRAY/ ? @{$_[1]} : $_[1];
+        $r .= ref($_[1]) =~ /^ARRAY/ ? join(', ', @{$_[1]}) : $_[1];
     }
 );
 
@@ -27,6 +27,6 @@ print 'ok '.(++$test)." returning scalar in scalar context\n";
 $r = '';
 my @r = a::a_list(4,6,8);
 
-print 'not ' unless(join('', @r) eq 'insuba_list' && $r eq 'a::a_list, 4, 6, 83');
+print 'not ' unless(join('', @r) eq 'insuba_list' && $r eq 'a::a_list, 4, 6, 8in, sub, a_list');
 print 'ok '.(++$test)." returning array in array context\n";
 
