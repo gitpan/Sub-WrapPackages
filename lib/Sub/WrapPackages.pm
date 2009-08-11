@@ -5,9 +5,9 @@ package Sub::WrapPackages;
 
 use vars qw($VERSION);
 
-use Data::Dumper;
+$VERSION = '1.3';
 
-$VERSION = '1.2';
+use Hook::LexWrap;
 
 =head1 NAME
 
@@ -16,18 +16,20 @@ subroutines in packages or around individual subs
 
 =head1 SYNOPSIS
 
-    use Sub::WrapPackages (
-        packages => [qw(Foo Bar)],        # wrap all Foo::* and Bar::*
-        subs     => [qw(Baz::a, Baz::b)], # wrap these two subs as well
-        wrap_inherited => 1,              # and wrap any methods
-                                          # inherited by Foo and Bar
-	pre      => sub {
-	    print "called $_[0] with params ".
-	      join(', ', @_[1..$#_])."\n";
-	},
-	post     => sub {
-	    print "$_[0] returned $_[1]\n";
-	},
+    use Sub::WrapPackages
+        packages => [qw(Foo Bar Baz::*)],   # wrap all subs in Foo and Bar
+                                            #   and any Baz::* packages
+        subs     => [qw(Barf::a, Barf::b)], # wrap these two subs as well
+        wrap_inherited => 1,                # and wrap any methods
+                                            #   inherited by Foo, Bar, or
+                                            #   Baz::*
+        pre      => sub {
+            print "called $_[0] with params ".
+              join(', ', @_[1..$#_])."\n";
+        },
+        post     => sub {
+            print "$_[0] returned $_[1]\n";
+        };
 
 =head1 DESCRIPTION
 
@@ -47,7 +49,18 @@ you look at the source I haven't tested it.  Patches welcome!
 
 In the synopsis above, you will see two named parameters, C<subs> and
 C<packages>.  Any subroutine mentioned in C<subs> will be wrapped.  Any
-packages mentioned in C<packages> will have all their subroutines wrapped.
+packages mentioned in C<packages> will have all their subroutines wrapped,
+including any that they import.
+
+Any subroutines mentioned in 'subs' must already exist - ie their modules
+must be loaded - at the time you try to wrap them.  Otherwise the order in
+which modules are loaded doesn't matter due to Stunt Code.
+
+Note, however, that if a module exports a subroutine at load-time using
+C<import> then that sub will be wrapped in the exporting module but not in
+the importing module.  This is because import() runs before we get a chance
+to fiddle with things.  The code for deferred fiddlage isn't re-entrant.
+It's probably horribly fragile in all kinds of other ways too.
 
 =item wrap_inherited
 
@@ -84,9 +97,17 @@ AUTOLOAD and DESTROY are not treated as being special.
 I like to know who's using my code.  All comments, including constructive
 criticism, are welcome.  Please email me.
 
-=head1 AUTHOR and CREDITS
+=head1 SOURCE CODE REPOSITORY
 
-David Cantrell E<lt>F<david@cantrell.org.uk>E<gt>
+L<http://www.cantrell.org.uk/cgit/cgit.cgi/perlmodules/>
+
+=head1 COPYRIGHT and LICENCE
+
+Copyright 2003-2009 David Cantrell E<lt>F<david@cantrell.org.uk>E<gt>
+
+This software is free-as-in-speech software, and may be used, distributed, and modified under the terms of either the GNU General Public Licence version 2 or the Artistic Licence. It's up to you which one you use. The full text of the licences can be found in the files GPL2.txt and ARTISTIC.txt, respectively.
+
+=head1 THANKS TO
 
 Thanks also to Adam Trickett who thought this was a jolly good idea,
 Tom Hukins who prompted me to add support for inherited methods, and Ed
@@ -96,71 +117,118 @@ I borrowed out of L<Acme::Voodoo>.
 Thanks to Tom Hukins for sending in a test case for the situation when
 a class and a subclass are both defined in the same file.
 
-=head1 COPYRIGHT and LICENCE
-
-Copyright 2003 - 2006 David Cantrell
-
-This module is free-as-in-speech software, and may be used, distributed,
-and modified under the same terms as Perl itself.
+Thanks to Dagfinn Ilmari Mannsaker for help with the craziness for
+fiddling with modules that haven't yet been loaded.
 
 =cut
 
-use Hook::LexWrap;
-
 sub import {
-    my $i_am_weasel = shift;
-    wrapsubs(@_) if(@_);
+    shift;
+    _wrapsubs(@_) if(@_);
 }
 
-sub subs_in_packages {
+sub _subs_in_packages {
     my @targets = map { $_.'::' } @_;
 
     my @subs;
     foreach my $package (@targets) {
-	no strict;
+        no strict;
         while(my($k, $v) = each(%{$package})) {
-	    push @subs, $package.$k if(defined(&{$v}));
-	}
+            push @subs, $package.$k if(defined(&{$v}));
+        }
     }
     return @subs;
 }
 
-sub wrapsubs {
+sub _make_magic_inc {
+    my %params = @_;
+    my $wildcard_packages = [map { s/::.//; $_; } grep { /::\*$/ } @{$params{packages}}];
+    my $nonwildcard_packages = [grep { $_ !~ /::\*$/ } @{$params{packages}}];
+
+    unshift @INC, sub {
+        my($me, $file) = @_;
+        (my $module = $file) =~ s{/}{::}g;
+        $module =~ s/\.pm//;
+        return undef unless(
+            (grep { $module =~ /^$_(::|$)/ } @{$wildcard_packages}) ||
+            (grep { $module eq $_ } @{$nonwildcard_packages})
+        );
+        local @INC = grep { $_ ne $me } @INC;
+        local $/;
+        my @files = grep { -e $_ } map { join('/', $_, $file) } @INC;
+        open(my $fh, $files[0]) || die("Can't locate $file in \@INC\n");
+        my $text = <$fh>;
+        close($fh);
+        %Sub::WrapPackages::params = %params;
+
+        $text =~ /(.*?)(__DATA__|__END__|$)/s;
+        my($code, $trailer) = ($1, $2);
+        $text = $code.qq[
+            ;
+            Sub::WrapPackages::_wrapsubs(
+                %Sub::WrapPackages::params,
+                packages => [qw($module)]
+            );
+            1;
+        ].$trailer;
+        open($fh, '<', \$text);
+        $fh;
+    };
+}
+
+sub _wrapsubs {
     my %params = @_;
 
     if(exists($params{packages}) && ref($params{packages}) =~ /^ARRAY/) {
+        my $wildcard_packages = [map { (my $foo = $_) =~ s/::.$//; $foo; } grep { /::\*$/ } @{$params{packages}}];
+        my $nonwildcard_packages = [grep { $_ !~ /::\*$/ } @{$params{packages}}];
+
+        # wrap stuff that's not yet loaded
+        _make_magic_inc(%params);
+
+        # wrap wildcards that *are* loaded
+        if(@{$wildcard_packages}) {
+            foreach my $loaded (map { (my $f = $_) =~ s!/!::!g; $f =~ s/\.pm$//; $f } keys %INC) {
+                my $pattern = '^('.join('|',
+                    map { (my $f = $_) =~ s/::\*$/::/; $f } @{$wildcard_packages}
+                ).')';
+                _wrapsubs(%params, packages => [$loaded]) if($loaded =~ /$pattern/);
+            }
+        }
+
+        # wrap non-wildcards that *are* loaded
         if($params{wrap_inherited}) {
-            foreach my $package (@{$params{packages}}) {
+            foreach my $package (@{$nonwildcard_packages}) {
                 # FIXME? does this work with 'use base'
                 my @parents = eval '@'.$package.'::ISA';
 
                 # get inherited (but not over-ridden!) subs
                 my %subs_in_package = map {
                     s/.*:://; ($_, 1);
-                } subs_in_packages($package);
+                } _subs_in_packages($package);
 
                 my @subs_to_define = grep {
                     !exists($subs_in_package{$_})
                 } map { 
                     s/.*:://; $_;
-                } subs_in_packages(@parents);
+                } _subs_in_packages(@parents);
 
                 # define them in $package using SUPER
-		foreach my $sub (@subs_to_define) {
-		    no strict;
-		    *{$package."::$sub"} = eval "
-		        sub {
-			    package $package;
+                foreach my $sub (@subs_to_define) {
+                    no strict;
+                    *{$package."::$sub"} = eval "
+                        sub {
+                            package $package;
                             my \$self = shift;
                             \$self->SUPER::$sub(\@_);
                         };
-	            ";
-		    eval 'package __PACKAGE__';
-		    # push @{$params{subs}}, $package."::$sub";
-		}
+                    ";
+                    eval 'package __PACKAGE__';
+                    # push @{$params{subs}}, $package."::$sub";
+                }
             }
         }
-        push @{$params{subs}}, subs_in_packages(@{$params{packages}});
+        push @{$params{subs}}, _subs_in_packages(@{$params{packages}});
     } elsif(exists($params{packages})) {
         die("Bad param 'packages'");
     }
