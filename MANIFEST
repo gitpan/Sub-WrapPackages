@@ -25,3 +25,5 @@ t/lib/Module/With/Data/Segment.pm
 t/lib/Module/With/END/Segment.pm
 t/lib/Module/With/Both/Segments.pm
 META.yml                                 Module meta-data (added by MakeMaker)
+t/09_5.10_use_constant.t
+t/lib/breakuseconstant.pm

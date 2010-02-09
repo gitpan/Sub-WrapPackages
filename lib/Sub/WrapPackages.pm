@@ -5,7 +5,7 @@ package Sub::WrapPackages;
 
 use vars qw($VERSION);
 
-$VERSION = '1.3';
+$VERSION = '1.31';
 
 use Hook::LexWrap;
 
@@ -120,6 +120,9 @@ a class and a subclass are both defined in the same file.
 Thanks to Dagfinn Ilmari Mannsaker for help with the craziness for
 fiddling with modules that haven't yet been loaded.
 
+Thanks to Lee Johnson for reporting a bug caused by perl 5.10's
+constant.pm being Far Too Clever, and providing a patch and test.
+
 =cut
 
 sub import {
@@ -134,7 +137,8 @@ sub _subs_in_packages {
     foreach my $package (@targets) {
         no strict;
         while(my($k, $v) = each(%{$package})) {
-            push @subs, $package.$k if(defined(&{$v}));
+            # 5.10 makes 'use constant' imports into scalars
+            push @subs, $package.$k if(ref($v) ne 'SCALAR' && defined(&{$v}));
         }
     }
     return @subs;
