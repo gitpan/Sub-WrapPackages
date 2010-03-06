@@ -3,13 +3,8 @@ WriteMakefile(
     NAME         => 'Sub::WrapPackages',
     VERSION_FROM => 'lib/Sub/WrapPackages.pm',
     PREREQ_PM    => {
-        Hook::LexWrap => 0.20,
+        'Sub::Prototype' => 0.02,
+        # 'Sub::Uplevel'   => 0.22,
+        'Devel::Caller::IgnoreNamespaces' => 1.0,
     }
 );
-
-# package MY;
-# sub test {
-#     my $text = shift->SUPER::test(@_);
-#     $text =~ s/\t(.*test_harness)/\tHARNESS_OPTIONS=j8 $1/;
-#     $text;
-# }
